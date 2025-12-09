@@ -1,0 +1,8 @@
+target/
+*.o
+*.exe
+.vscode/
+build/
+bin/
+.DS_Store
+Thumbs.db
