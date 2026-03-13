@@ -4,16 +4,17 @@
 #include <getopt.h>
 #include <errno.h>
 
-void create_default_options(Options *options)
+
+void create_default_options(struct Options *options)
 {
     if (NULL == options){
         return;
     }
 
-    options->listening_port = DEFAULT_LISTENING_PORT;
+    options->port = CONFIG_DEFAULT_PORT;
 }
 
-void set_options(int argc, char *argv[], Options *options)
+void set_options(int argc, char *argv[], struct Options *options)
 {
     if (NULL == options)
     {
@@ -46,7 +47,7 @@ void set_options(int argc, char *argv[], Options *options)
                     fprintf(stderr, "Invalid option --port %s: Illegal port number.\n", optarg);
                     exit(EXIT_FAILURE);
                 }
-                options->listening_port = (int) t;
+                options->port = (int) t;
                 break;
             case ':':
             case 'h':
@@ -60,5 +61,6 @@ void set_options(int argc, char *argv[], Options *options)
 }
 
 void usage(void){
+    printf("Usage:\n");
     return;
 }

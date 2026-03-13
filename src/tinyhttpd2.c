@@ -4,13 +4,20 @@
 #include <unistd.h>
 #include <netinet/in.h>
 #include <sys/socket.h>
-#include <sys/select.h>
+#include <sys/epoll.h>
 #include <errno.h>
 #include <string.h>
 #include <signal.h>
 
 #define MAX_CLIENTS 10
 #define BUFFER_SIZE 1024
+#define MAX_EVENTS 64
+
+// Connection status for keep-alive support
+typedef enum {
+    CONN_CLOSE,      // Close connection
+    CONN_KEEP_ALIVE  // Keep connection alive
+} connection_status_t;
 
 // Global flag for graceful shutdown.
 volatile sig_atomic_t shutdown_flag = 0;
@@ -34,17 +41,14 @@ void setup_signal_handlers(void);
 int create_server_socket(int port);
 
 
-void handle_client(int client_socket);
+connection_status_t handle_client(int client_socket);
 
 int main(int argc, char *argv[])
 {
-    int server_socket;
-    fd_set read_fds;
-    int max_fd, activity, client_socket;
+    int server_socket, epoll_fd, nfds, client_socket;
     struct sockaddr_in client_address = {0};
     size_t client_addr_len = sizeof(client_address);
-    int client_sockets[MAX_CLIENTS] = {0};
-    struct timeval timeout;
+    struct epoll_event event, events[MAX_EVENTS];
 
     if (1 == argc)
     {
@@ -58,120 +62,120 @@ int main(int argc, char *argv[])
     Options options = {0};
     set_options(argc, argv, &options);
 
-    server_socket= create_server_socket(options.listening_port);
+    server_socket = create_server_socket(options.listening_port);
 
     if (server_socket < 0)
     {
         exit(EXIT_FAILURE);
     }
 
+    // Create epoll instance
+    epoll_fd = epoll_create1(EPOLL_CLOEXEC);
+    if (epoll_fd == -1)
+    {
+        perror("epoll_create1");
+        close(server_socket);
+        exit(EXIT_FAILURE);
+    }
+
+    // Add server socket to epoll
+    event.events = EPOLLIN;
+    event.data.fd = server_socket;
+    if (epoll_ctl(epoll_fd, EPOLL_CTL_ADD, server_socket, &event) == -1)
+    {
+        perror("epoll_ctl: server_socket");
+        close(server_socket);
+        close(epoll_fd);
+        exit(EXIT_FAILURE);
+    }
+
     printf("Server listening on port %d...\n", options.listening_port);
     printf("Press Ctrl+C to stop\n");
 
-    while(!shutdown_flag) 
+    while (!shutdown_flag) 
     {
-        // Clear the socket set.
-        FD_ZERO(&read_fds);
-
-        // Add server socket to set
-        FD_SET(server_socket, &read_fds);
-        max_fd = server_socket;
-
-        // Add client sockets to read fd set.
-        for (int i = 0; i < MAX_CLIENTS; i++)
-        {
-            if (client_sockets[i] > 0)
-            {
-                FD_SET(client_sockets[i], &read_fds);
-            }
-
-            if (client_sockets[i] > max_fd)
-            {
-                max_fd = client_sockets[i];
-            }
-        }
-
-        // Set timeout for select to check shutdown flag periodically.
-        timeout.tv_sec = 1;
-        timeout.tv_usec = 0;
-
-        // Wait for activity on one of the sockets.
-        activity = select(max_fd + 1, &read_fds, NULL, NULL, &timeout);
+        // Wait for events with 1 second timeout
+        nfds = epoll_wait(epoll_fd, events, MAX_EVENTS, 1000);
         
-
-        if (activity < 0)
+        if (nfds == -1)
         {
-            if (errno != EINTR)
+            if (errno == EINTR)
             {
-                perror("Socket select error");
-                break;
-            }
-            else{
                 if (shutdown_flag)
                 {
                     break;
                 }
+                continue;
+            }
+            else
+            {
+                perror("epoll_wait");
+                break;
             }
         }
 
-        // If someting happened on the server socket, it's an incoming connection.
-        if (FD_ISSET(server_socket, &read_fds))
+        // Process all ready events
+        for (int i = 0; i < nfds; i++)
         {
-            client_socket = accept(server_socket, (struct sockaddr *)&client_address, (socklen_t *)&client_addr_len);
-            if (client_socket < 0)
+            if (events[i].data.fd == server_socket)
             {
-                if (errno == EINTR && shutdown_flag)
+                // New connection on server socket
+                client_socket = accept(server_socket, (struct sockaddr *)&client_address, (socklen_t *)&client_addr_len);
+                if (client_socket < 0)
                 {
-                    break;
+                    if (errno == EINTR && shutdown_flag)
+                    {
+                        break;
+                    }
+                    else
+                    {
+                        perror("Accepting in-bound connection failed.");
+                        continue;
+                    }
                 }
-                else
+
+                // Add client socket to epoll
+                event.events = EPOLLIN | EPOLLET; // Edge-triggered for better performance
+                event.data.fd = client_socket;
+                if (epoll_ctl(epoll_fd, EPOLL_CTL_ADD, client_socket, &event) == -1)
                 {
-                    perror("Accepting in-bound connection failed.");
+                    perror("epoll_ctl: client_socket");
+                    close(client_socket);
                     continue;
-
                 }
-
             }
-
-            // Add new socket to array of client sockets.
-            for (int i = 0; i < MAX_CLIENTS; i++)
+            else
             {
-                if (0 == client_sockets[i])
+                // Activity on client socket
+                int fd = events[i].data.fd;
+                
+                // Handle client request
+                connection_status_t status = handle_client(fd);
+                
+                // Close connection if requested or on error
+                if (status == CONN_CLOSE)
                 {
-                    client_sockets[i] = client_socket;
-                    break;
+                    if (epoll_ctl(epoll_fd, EPOLL_CTL_DEL, fd, NULL) == -1)
+                    {
+                        perror("epoll_ctl: EPOLL_CTL_DEL");
+                    }
+                    close(fd);
                 }
+                // For CONN_KEEP_ALIVE, connection stays in epoll for next request
             }
         }
-
-        // Check for activity on client sockets.
-        for (int i = 0; i < MAX_CLIENTS; i++)
-        {
-            if (client_sockets[i] != 0 && FD_ISSET(client_sockets[i], &read_fds))
-            {
-                handle_client(client_sockets[i]);
-                close(client_sockets[i]);
-                client_sockets[i] = 0;
-            }
-        }
-
     }
 
     // Graceful shutdown.
     printf("Shutting down server...\n");
 
-    // Close all sockets.
+    // Close epoll instance and server socket
+    close(epoll_fd);
     close(server_socket);
-    for (int i = 0; i < MAX_CLIENTS; i++)
-    {
-        if (client_sockets[i] != 0)
-        {
-            close(client_sockets[i]);
-        }
-    }
 
     printf("Server closed.\n");
 
+    return 0;
 }
 
 void signal_handler(int sig)
@@ -255,24 +259,87 @@ int create_server_socket(int port)
     return server_fd;
 }
 
-void handle_client(int client_socket)
+connection_status_t handle_client(int client_socket)
 {
     char buffer[BUFFER_SIZE] = {0};
-    char *http_response = 
+    connection_status_t conn_status = CONN_CLOSE;  // Default to close
+    
+    // Read the request
+    ssize_t bytes_read = read(client_socket, buffer, BUFFER_SIZE - 1);
+    if (bytes_read <= 0)
+    {
+        // Connection closed by client or error
+        return CONN_CLOSE;
+    }
+    
+    buffer[bytes_read] = '\0';
+    printf("Received request:\n%s\n", buffer);
+    
+    // Parse HTTP request to check for Connection header
+    char *connection_header = NULL;
+    char *header_start = strstr(buffer, "Connection:");
+    if (!header_start)
+    {
+        header_start = strstr(buffer, "connection:");  // Case insensitive
+    }
+    
+    if (header_start)
+    {
+        // Find the end of the header line
+        char *header_end = strstr(header_start, "\r\n");
+        if (header_end)
+        {
+            // Extract header value
+            header_start += 11;  // Skip "Connection:"
+            while (*header_start == ' ' || *header_start == '\t') header_start++;  // Skip whitespace
+            
+            size_t value_len = header_end - header_start;
+            connection_header = malloc(value_len + 1);
+            strncpy(connection_header, header_start, value_len);
+            connection_header[value_len] = '\0';
+            
+            // Check if it's keep-alive
+            if (strstr(connection_header, "keep-alive") || strstr(connection_header, "Keep-Alive"))
+            {
+                conn_status = CONN_KEEP_ALIVE;
+            }
+        }
+    }
+    else
+    {
+        // Check HTTP version - HTTP/1.1 defaults to keep-alive, HTTP/1.0 defaults to close
+        if (strstr(buffer, "HTTP/1.1"))
+        {
+            conn_status = CONN_KEEP_ALIVE;
+        }
+    }
+    
+    // Prepare response with appropriate Connection header
+    char http_response[1024];
+    const char *html_content = "<html><body><h1>Hello from Tinyhttpd2!</h1></body></html>";
+    const char *connection_value = (conn_status == CONN_KEEP_ALIVE) ? "keep-alive" : "close";
+    
+    snprintf(http_response, sizeof(http_response),
         "HTTP/1.1 200 OK\r\n"
         "Content-Type: text/html\r\n"
-        "Content-Length: 46\r\n"
+        "Content-Length: %zu\r\n"
+        "Connection: %s\r\n"
         "\r\n"
-        "<html><body><h1>Hello from Tinyhttpd2!</h></body></html>";
-
-    // Read the request (we'll just ignore it for now)
-    ssize_t bytes_read = read(client_socket, buffer, BUFFER_SIZE - 1);
-    if (bytes_read > 0)
-    {
-        buffer[bytes_read] = '\0';
-        printf("Received request:\n%s\n", buffer);
-    }
+        "%s",
+        strlen(html_content), connection_value, html_content);
 
     // Send response
-    send(client_socket, http_response, strlen(http_response), 0);
+    ssize_t sent = send(client_socket, http_response, strlen(http_response), 0);
+    if (sent < 0)
+    {
+        perror("send failed");
+        conn_status = CONN_CLOSE;
+    }
+    
+    if (connection_header)
+    {
+        free(connection_header);
+    }
+    
+    return conn_status;
 }
