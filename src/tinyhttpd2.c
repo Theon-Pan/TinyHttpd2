@@ -59,10 +59,10 @@ int main(int argc, char *argv[])
     // Setup signal handlers for graceful shutdown.
     setup_signal_handlers();
 
-    Options options = {0};
+    struct Options options = {0};
     set_options(argc, argv, &options);
 
-    server_socket = create_server_socket(options.listening_port);
+    server_socket = create_server_socket(options.port);
 
     if (server_socket < 0)
     {

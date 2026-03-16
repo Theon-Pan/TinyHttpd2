@@ -21,13 +21,19 @@ prepare:
 clean:
 	rm -rf $(TARGET_DIR)
 	@echo "Clean up all generated files."
-
 options.o: prepare include/options.h src/options.c
 	$(CC) $(CFLAGS) $(INCLUDES) -c src/options.c -o $(TARGET_DIR)/options.o
 
-$(TARGET).o: prepare src/tinyhttpd2.c include/options.h
-	$(CC) $(CFLAGS) $(INCLUDES) -c src/tinyhttpd2.c -o $(TARGET_DIR)/$(TARGET).o
+serverassert.o: prepare include/serverassert.h src/serverassert.c
+	$(CC) $(CFLAGS) $(INCLUDES) -c src/serverassert.c -o $(TARGET_DIR)/serverassert.o
 
-$(TARGET): prepare options.o $(TARGET).o
-	$(CC) $(CFLAGS) $(LDFLAGS) -o $(TARGET_DIR)/$(TARGET) $(TARGET_DIR)/options.o $(TARGET_DIR)/$(TARGET).o $(LIBS)
+$(TARGET).o: prepare src/server.c include/options.h include/server.h
+	$(CC) $(CFLAGS) $(INCLUDES) -c src/server.c -o $(TARGET_DIR)/$(TARGET).o
+
+$(TARGET): prepare options.o serverassert.o $(TARGET).o
+	$(CC) $(CFLAGS) $(LDFLAGS) -o $(TARGET_DIR)/$(TARGET) \
+			$(TARGET_DIR)/options.o                       \
+			$(TARGET_DIR)/serverassert.o                  \
+			$(TARGET_DIR)/$(TARGET).o                     \
+			$(LIBS)
 	@echo "Tinyhttpd2 compiled successfully."

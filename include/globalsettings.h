@@ -9,7 +9,7 @@
 #define LL_WARNING 3
 #define LL_NOTHING 4
 #define LL_RAW (1 << 10)                        /* Modifier to log without timestamp */
-#define LOG_VERBOSITY 2
+#define LOG_VERBOSITY LL_DEBUG
 #define LOG_MAX_LEN 1024
 
 #define CONFIG_BINDADDR_MAX 16                  /* The max chars of the bind address */

@@ -12,7 +12,7 @@
     }while(0)
 
 struct tinyHttpServer {
-    char *bindaddr[CONFIG_BINDADDR_MAX];                /* Address we should bind to */
+    char bindaddr[CONFIG_BINDADDR_MAX + 1];                /* Address we should bind to */
     int port;                                           /* TCP listening port */
 };
 

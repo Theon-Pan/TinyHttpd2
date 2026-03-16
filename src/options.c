@@ -3,6 +3,7 @@
 #include <stdio.h>
 #include <getopt.h>
 #include <errno.h>
+#include <string.h>
 
 
 void create_default_options(struct Options *options)
@@ -24,12 +25,13 @@ void set_options(int argc, char *argv[], struct Options *options)
 
     int opt;
     int options_index = 0;
-    char *short_opts = "p:?h";
+    char *short_opts = "p:H:?h";
     char *endptr;
     long t;
 
 
     const struct option long_options[] = {
+        {"host", required_argument, NULL, 'H'},
         {"port", required_argument, NULL, 'p'},
         {NULL, 0, NULL, 0}
     };
@@ -40,6 +42,14 @@ void set_options(int argc, char *argv[], struct Options *options)
         switch (opt)
         {
             case 0:
+                break;
+            case 'H':
+                if (strlen(optarg) > CONFIG_BINDADDR_MAX)
+                {
+                    fprintf(stderr, "Host name is exceeded than the limit[%d bytes].\n", CONFIG_BINDADDR_MAX);
+                    exit(EXIT_FAILURE);
+                }
+                snprintf(options->bindadddr, sizeof(options->bindadddr), optarg);
                 break;
             case 'p':
                 t = strtol(optarg, &endptr, 10);

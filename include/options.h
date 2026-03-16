@@ -6,7 +6,7 @@
 
 struct Options
 {
-    char *bindadddr[CONFIG_BINDADDR_MAX];                   /* The bind address */
+    char bindadddr[CONFIG_BINDADDR_MAX + 1];                   /* The bind address */
     int port;                                               /* TCP listening port */
 
 };
