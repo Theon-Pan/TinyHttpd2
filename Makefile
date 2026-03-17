@@ -21,18 +21,27 @@ prepare:
 clean:
 	rm -rf $(TARGET_DIR)
 	@echo "Clean up all generated files."
+
 options.o: prepare include/options.h src/options.c
 	$(CC) $(CFLAGS) $(INCLUDES) -c src/options.c -o $(TARGET_DIR)/options.o
 
+anet.o: prepare include/anet.h src/anet.c
+	$(CC) $(CFLAGS) $(INCLUDES) -c src/anet.c -o $(TARGET_DIR)/anet.o
+
+ae.o: prepare include/ae.h src/ae.c
+	$(CC) $(CFLAGS) $(INCLUDES) -c src/ae.c -o $(TARGET_DIR)/ae.o
+	
 serverassert.o: prepare include/serverassert.h src/serverassert.c
 	$(CC) $(CFLAGS) $(INCLUDES) -c src/serverassert.c -o $(TARGET_DIR)/serverassert.o
 
 $(TARGET).o: prepare src/server.c include/options.h include/server.h
 	$(CC) $(CFLAGS) $(INCLUDES) -c src/server.c -o $(TARGET_DIR)/$(TARGET).o
 
-$(TARGET): prepare options.o serverassert.o $(TARGET).o
+$(TARGET): prepare options.o serverassert.o anet.o ae.o $(TARGET).o
 	$(CC) $(CFLAGS) $(LDFLAGS) -o $(TARGET_DIR)/$(TARGET) \
 			$(TARGET_DIR)/options.o                       \
+			$(TARGET_DIR)/ae.o							  \
+			$(TARGET_DIR)/anet.o						  \
 			$(TARGET_DIR)/serverassert.o                  \
 			$(TARGET_DIR)/$(TARGET).o                     \
 			$(LIBS)

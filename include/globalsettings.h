@@ -1,6 +1,11 @@
 #ifndef __GLOBAL_SETTINGS_H
 #define __GLOBAL_SETTINGS_H
 
+#define _POSIX_C_SOURCE 200809L
+
+#ifdef __linux__
+#define HAVE_EPOLL 1
+#endif
 
 /* Log levels */
 #define LL_DEBUG 0

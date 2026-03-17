@@ -1,0 +1,1 @@
+int anetCloexec(int fd);

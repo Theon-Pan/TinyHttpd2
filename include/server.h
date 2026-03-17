@@ -2,6 +2,7 @@
  * 
  */
 #include "globalsettings.h"
+#include "ae.h"
 
 
 
@@ -14,6 +15,7 @@
 struct tinyHttpServer {
     char bindaddr[CONFIG_BINDADDR_MAX + 1];                /* Address we should bind to */
     int port;                                           /* TCP listening port */
+    aeEventLoop *el;
 };
 
 void _serverlog(int level, const char *fmt, ...);
