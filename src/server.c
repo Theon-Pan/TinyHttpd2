@@ -83,8 +83,8 @@ void initServer(struct Options *options)
     /* Config server. */
     snprintf(server.bindaddr, sizeof(server.bindaddr), options->bindadddr);
     server.port = options->port;
-    /* @todo: Currently we set the max clients to 10, will change to depend on the args in the options. */
-    server.el = aeCreateEventLoop(10);
+    /* @todo: Currently we set the max clients to 1024 + 96, will change to depend on the args in the options. */
+    server.el = aeCreateEventLoop(1024 + 96);
     if (server.el == NULL)
     {
         serverLog(LL_WARNING|LL_RAW, "Failed creating the event loop. Error message: '%s'", strerror(errno));

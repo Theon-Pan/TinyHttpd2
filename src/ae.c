@@ -4,6 +4,7 @@
 
 #include <pthread.h>
 #include <stdlib.h>
+#include <errno.h>
 
 #ifdef HAVE_EPOLL
 #include "ae_epoll.c"
@@ -16,7 +17,7 @@
 
 #define AE_UNLOCK(eventLoop)                                            \
     if ((eventLoop)->flags & AE_PROTECT_POLL) {                         \
-        assert(pthread_mutex_unlock(&(eventLoop)->poll_mutex) == 0)    \
+        assert(pthread_mutex_unlock(&(eventLoop)->poll_mutex) == 0);    \
     }
 
 aeEventLoop *aeCreateEventLoop(int setsize)
@@ -65,4 +66,87 @@ err:
         free(eventLoop);
     }
     return NULL;
+}
+
+int aeCreateFileEvent(aeEventLoop *eventLoop, int fd, int mask, aeFileProc *proc, void *clientData)
+{
+    AE_LOCK(eventLoop);
+    int ret = AE_ERR;
+    if (fd >= eventLoop->setsize)
+    {
+        errno = ERANGE;
+        goto done;
+    }
+    
+    aeFileEvent *fe = &(eventLoop->events[fd]);
+    
+    if (aeApiAddEvent(eventLoop, fd, mask) == -1) goto done;
+    fe->mask |= mask;
+    if (mask & AE_READABLE) fe->rfileProc = proc;
+    if (mask & AE_WRITABLE) fe->wfileProc = proc;
+    fe->clientData = clientData;
+    if (fd > eventLoop->maxfd) eventLoop->maxfd = fd;
+
+    ret = AE_OK;
+
+done:
+    AE_UNLOCK(eventLoop);
+    return ret;
+}
+
+/**
+ * Remove fd with the specified event from multiplex, if the event is mismatched,
+ * then nothing happened.
+ */
+void aeDeleteFileEvent(aeEventLoop *eventLoop, int fd, int mask)
+{
+    AE_LOCK(eventLoop);
+    if (fd > eventLoop->setsize) goto done;
+
+    aeFileEvent *fe = &eventLoop->events[fd];
+    if (fe->mask == AE_NONE) goto done;
+
+    /* We want to always remove AE_BARRIER if set when AE_WRITABLE
+     * is removed. 
+     * @todo: So for I don't understand the purpose of this piece of code, so comment it*/
+    // if (mask & AE_WRITABLE) mask |= AE_BARRIER;
+
+    /* Only remove attached events. */
+    mask = mask & fe->mask;
+    fe->mask = fe->mask & (~mask);
+    if (fd == eventLoop->maxfd && fe->mask == AE_NONE)
+    {
+        /* Update the max fd. */
+        int j;
+        for (j = eventLoop->maxfd - 1; j >= 0; j--)
+            if (eventLoop->events[j].mask != AE_NONE) break;
+        eventLoop->maxfd = j;
+    }
+
+    /* Check whether there are events to be removed.
+     * Note: user may remove the AE_BARRIER without
+     * touching the actual events. */
+    if (mask & (AE_READABLE | AE_WRITABLE))
+    {
+        /* Must be invoked after the eventLoop maskis modified,
+         * which is required by evport and epoll */
+        aeApiDelEvent(eventLoop, fd, mask);
+    }
+
+done:
+    AE_UNLOCK(eventLoop);
+}
+
+int aeProcessEvents(aeEventLoop *eventLoop, int flags)
+{
+
+}
+
+void aemain(aeEventLoop *eventLoop)
+{
+    eventLoop->stop = 0;
+    while (!eventLoop->stop)
+    {
+        aeProcessEvents(eventLoop, 0);
+    }
 }
