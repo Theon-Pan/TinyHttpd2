@@ -1,4 +1,5 @@
 #include <sys/epoll.h>
+#include <unistd.h>
 #include "anet.h"
 
 typedef struct aeApiState
@@ -11,7 +12,7 @@ static int aeApiCreate(aeEventLoop *eventLoop)
 {
     aeApiState *state = malloc(sizeof(aeApiState));
     if (!state) return -1;
-    state->events = malloc(sizeof(struct epoll_event) * eventLoop->setsize);
+    state->events = calloc(eventLoop->setsize, sizeof(struct epoll_event));
     if (!state->events)
     {
         free(state);
@@ -67,7 +68,7 @@ static int aeApiAddEvent(aeEventLoop *eventLoop, int fd, int mask)
     return 0;
 }
 
-static int aeApiDelEvent(aeEventLoop *eventLoop, int fd, int mask)
+static void aeApiDelEvent(aeEventLoop *eventLoop, int fd, int mask)
 {
     aeApiState *state = eventLoop->apidata;
     struct epoll_event ee = {0};
@@ -89,5 +90,40 @@ static int aeApiDelEvent(aeEventLoop *eventLoop, int fd, int mask)
          * EPOLL_CTL_DEL */
         epoll_ctl(state->epfd, EPOLL_CTL_DEL, fd, &ee);
     }
+}
+
+static int aeApiPoll(aeEventLoop *eventLoop, struct timeval *tvp)
+{
+    aeApiState *state = eventLoop->apidata;
+    int retval, numevents = 0;
+
+    retval = epoll_wait(state->epfd, state->events, eventLoop->setsize,
+                        tvp ? (tvp->tv_sec * 1000 + (tvp->tv_usec + 999) / 1000) : -1);
+    if (retval > 0)
+    {
+        numevents = retval;
+        for (int j = 0; j < numevents; j++)
+        {
+            int mask = 0;
+            struct epoll_event *e = state->events + j;
+            if (e->events & EPOLLIN) mask |= AE_READABLE;
+            if (e->events & EPOLLOUT) mask |= AE_WRITABLE;
+            if (e->events & EPOLLERR) mask |= AE_WRITABLE | AE_READABLE;
+            if (e->events & EPOLLHUP) mask |= AE_WRITABLE | AE_READABLE;
+            eventLoop->fired[j].fd = e->data.fd;
+            eventLoop->fired[j].mask = mask;
+        }
+    }
+    else if (retval == -1 && errno != EINTR)
+    {
+        panic("aeApiPoll: epoll_wait, %s", strerror(errno));
+    }
+
+    return numevents;
+}
+
+static char *aeApiName(void)
+{
+    return "epoll";
 }
 

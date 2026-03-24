@@ -5,6 +5,7 @@
 #include <pthread.h>
 #include <stdlib.h>
 #include <errno.h>
+#include <string.h>
 
 #ifdef HAVE_EPOLL
 #include "ae_epoll.c"
@@ -26,8 +27,8 @@ aeEventLoop *aeCreateEventLoop(int setsize)
     int i;
 
     if ((eventLoop = malloc(sizeof(aeEventLoop))) == NULL) goto err;
-    eventLoop->events = malloc(sizeof(aeFileEvent) * setsize);
-    eventLoop->fired = malloc(sizeof(aeFiredEvent) * setsize);
+    eventLoop->events = calloc(setsize, sizeof(aeFileEvent));
+    eventLoop->fired = calloc(setsize, sizeof(aeFiredEvent));
     if(eventLoop->events == NULL || eventLoop->fired == NULL) goto err;
     eventLoop->setsize = setsize;
     eventLoop->timeEventHead = NULL;
@@ -139,7 +140,45 @@ done:
 
 int aeProcessEvents(aeEventLoop *eventLoop, int flags)
 {
+    int processed = 0, numevents;
 
+    /* NULL means infinite wait. */
+    struct timeval tv, *tvp = NULL; 
+
+    if (eventLoop->maxfd != -1)
+    {
+
+        /* @todo: set 100 milli-second by default, 
+                  will change to set the value which is from configure.*/
+        tv.tv_sec = 0;
+        tv.tv_usec = 100 * 1000;
+        tvp = &tv;
+        /* Call the multiplexing API, will return only on timeout or when
+         * some event fires. */
+        numevents = aeApiPoll(eventLoop, tvp);
+
+        for (int j = 0; j < numevents; j++)
+        {
+            int fd = eventLoop->fired[j].fd;
+            aeFileEvent *fe = &eventLoop->events[fd];
+            int mask = eventLoop->fired[j].mask;
+            int fired = 0; /* Number of events fired for current fd. */
+
+            if (fe && fe->rfileProc && (fe->mask & mask & AE_READABLE))
+            {
+                fe->rfileProc(eventLoop, fd, fe->clientData, mask);
+                fired++;
+            }
+            if (fe && fe->wfileProc && (fe->mask & mask & AE_WRITABLE))
+            {
+                fe->wfileProc(eventLoop, fd, fe->clientData, mask);
+                fired++;
+            }
+            processed++;
+        }
+    }
+
+    return processed;
 }
 
 void aemain(aeEventLoop *eventLoop)
