@@ -79,5 +79,9 @@ typedef struct aeEventLoop {
 /* Prototypes */
 aeEventLoop *aeCreateEventLoop(int setsize);
 void aeDeleteEventLoop(aeEventLoop *eventLoop);
+int aeCreateFileEvent(aeEventLoop *eventLoop, int fd, int mask, aeFileProc *proc, void *clientData);
+void aeDeleteFileEvent(aeEventLoop *eventLoop, int fd, int mask);
+int aeProcessEvents(aeEventLoop *eventLoop, int flags);
+void aeMain(aeEventLoop *eventLoop);
 
 #endif

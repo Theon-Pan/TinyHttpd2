@@ -31,6 +31,9 @@ anet.o: prepare include/anet.h src/anet.c
 ae.o: prepare include/ae.h src/ae.c  src/ae_epoll.c
 	$(CC) $(CFLAGS) $(INCLUDES) -c src/ae.c -o $(TARGET_DIR)/ae.o
 
+socket.o: prepare src/socket.c
+	$(CC) $(CFLAGS) $(INCLUDES) -c src/socket.c -o $(TARGET_DIR)/socket.o
+
 connection.o: prepare include/connection.h src/connection.c
 	$(CC) $(CFLAGS) $(INCLUDES) -c src/connection.c -o $(TARGET_DIR)/connection.o
 	
@@ -40,13 +43,14 @@ serverassert.o: prepare include/serverassert.h src/serverassert.c
 $(TARGET).o: prepare src/server.c include/options.h include/server.h
 	$(CC) $(CFLAGS) $(INCLUDES) -c src/server.c -o $(TARGET_DIR)/$(TARGET).o
 
-$(TARGET): prepare options.o serverassert.o anet.o ae.o connection.o $(TARGET).o
+$(TARGET): prepare options.o serverassert.o anet.o ae.o socket.o connection.o $(TARGET).o
 	$(CC) $(CFLAGS) $(LDFLAGS) -o $(TARGET_DIR)/$(TARGET) \
 			$(TARGET_DIR)/options.o                       \
 			$(TARGET_DIR)/ae.o							  \
 			$(TARGET_DIR)/connection.o					  \
 			$(TARGET_DIR)/anet.o						  \
 			$(TARGET_DIR)/serverassert.o                  \
+			$(TARGET_DIR)/socket.o						  \
 			$(TARGET_DIR)/$(TARGET).o                     \
 			$(LIBS)
 	@echo "Tinyhttpd2 compiled successfully."

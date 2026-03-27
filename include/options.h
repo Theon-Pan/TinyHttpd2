@@ -6,7 +6,8 @@
 
 struct Options
 {
-    char bindadddr[CONFIG_BINDADDR_MAX + 1];                   /* The bind address */
+    char *bindaddr[CONFIG_BINDADDR_MAX];                     /* The bind addresses */
+    int bindaddr_count;                                     /* The number of bind addresses */
     int port;                                               /* TCP listening port */
 
 };
@@ -30,5 +31,7 @@ void usage(void);
  * Validate the arguments parsed from command-line.
  */
 bool validate_options(const struct Options options);
+
+void free_options(struct Options * args);
 
 #endif

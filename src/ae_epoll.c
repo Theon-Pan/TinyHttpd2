@@ -30,7 +30,7 @@ static int aeApiCreate(aeEventLoop *eventLoop)
     return 0;
 }
 
-static int aeApiFree(aeEventLoop *eventLoop)
+static void aeApiFree(aeEventLoop *eventLoop)
 {
     aeApiState *state = eventLoop->apidata;
 

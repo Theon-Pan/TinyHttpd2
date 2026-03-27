@@ -17,3 +17,23 @@ int connTypeRegister(ConnectionType *ct) {
 
     return C_OK;
 }
+
+int connTypeInitialize(void) {
+    /* currently socket connection type is necessary */
+    assert(TinyHttpdRegisterConnectionTypeSocket() == C_OK);
+
+    /**/
+    return C_OK;
+}
+
+ConnectionType *connectionByType(int type) {
+    assert(type >= 0 && type < CONN_TYPE_MAX);
+
+    ConnectionType *ct = connTypes[type];
+    if (!ct) {
+        serverLog(LL_WARNING|LL_RAW, "Missing implement of connection type %s", getConnectionTypeName(type));
+    }
+    return ct;
+}
+
+
