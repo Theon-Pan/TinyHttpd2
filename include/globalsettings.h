@@ -1,7 +1,7 @@
 #ifndef __GLOBAL_SETTINGS_H
 #define __GLOBAL_SETTINGS_H
 
-
+#define _GNU_SOURCE
 #define UNUSED(x) ((void)x)
 #define _POSIX_C_SOURCE 200809L
 
