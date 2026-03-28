@@ -163,6 +163,51 @@ int anetTcp6Server(char *err, int port, char *bindaddr, int backlog, int mptcp) 
     return _anetTcpServer(err, port, bindaddr, AF_INET6, backlog, mptcp);
 }
 
+/* Accept a connection and also make sure the socket is non-blocking, and CLOEXEC.
+ * returns the new socket FD, or -1 on error. */
+int anetTcpAccept(char *err, int serversock, char *ip, size_t ip_len, int *port) {
+    int fd;
+    struct sockaddr_storage sa;
+    socklen_t salen = sizeof(sa);
+    if ((fd = anetGenericAccept(err, serversock, (struct sockaddr *)&sa, &salen)) == ANET_ERR) return ANET_ERR;
+
+    if (sa.ss_family == AF_INET) {
+        struct sockaddr_in *s = (struct sockaddr_in *)&sa;
+    }
+}
+
+/* Accpet a connection and also make sure the socket is non-blocking, and CLOEXEC.
+ * returns the new socket FD, or -1 on error. */
+static int anetGenericAccept(char *err, int s, struct sockadd *sa, socklen_t *len) {
+    int fd;
+    do {
+        /* Use the accept4() call on linux to simultaneously accept and
+         * set a socket as non-blocking. */
+#ifdef HAVE_ACCEPT4
+        fd = accept4(s, sa, len, SOCK_NONBLOCK | SOCK_CLOEXEC);
+#else
+        fd = accept(s, sa, len);
+#endif
+    } while (fd == -1 && errno == EINTR);
+
+    if (fd == -1) {
+        anetSetError(err, "accept: %s", strerror(errno));
+        return ANET_ERR;
+    }
+#ifndef HAVE_ACCEPT4
+    if (anetCloexec(fd) == -1) {
+        anetSetError(err, "anetCloexec: %s", strerror(errno));
+        close(fd);
+        return ANET_ERR;
+    }
+    if (anetNonBlock(err, fd) == -1) {
+        close(fd);
+        return ANET_ERR;
+    }
+#endif
+    return fd;
+}
+
 int anetSetSockMarkId(char *err, int fd, uint32_t id) {
 #ifdef HAVE_SOCKOPTMARKID
     if (setsockopt(fd, SOL_SOCKET, SOCKOPTMARKID, (void *)&id, sizeof(id)) == -1) {

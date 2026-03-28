@@ -6,6 +6,9 @@
 
 #include <unistd.h>
 
+#define NET_IP_STR_LEN 46                       /* INET6_ADDRSTRLEN is 46, but we need to be sure */
+
+
 typedef struct connection connection;
 typedef struct connListener connListener;
 
@@ -87,6 +90,11 @@ static inline const char *getConnectionTypeName(int type)
     default:
         return "invalid type";
     }
+}
+
+/* Listen on an initialized listener */
+static inline int connListen(connListener *listener) {
+    return listener->ct->listen(listener);
 }
 
 /* Close on an initialized listener */

@@ -31,6 +31,7 @@ int anetIsBlock(char *err, int fd);
 int anetCloexec(int fd);
 int anetTcpServer(char *err, int port, char *bindaddr, int backlog, int mptcp);
 int anetTcp6Server(char *err, int port, char *bindaddr, int backlog, int mptcp);
+int anetTcpAccept(char *err, int serversock, char *ip, size_t ip_len, int *port);
 int anetSetSockMarkId(char *err, int fd, uint32_t id);
 
 

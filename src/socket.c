@@ -11,6 +11,16 @@ static int connSocketListen(connListener *listener) {
     return listenToPort(listener);
 }
 
+static void connSocketAcceptHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
+    int cport, cfd;
+    int max = server.max_new_conns_per_cycle;
+    char cip[NET_IP_STR_LEN];
+    UNUSED(el);
+    UNUSED(mask);
+    UNUSED(privdata);
+}
+
+
 static void connSocketCloseListener(connListener *listener) {
     int j;
 

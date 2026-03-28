@@ -24,8 +24,11 @@ struct tinyHttpServer {
     char *bindaddr[CONFIG_BINDADDR_MAX];                /* Addresses we should bind to */
     int bindaddr_count;                                 /* The number of bind addressed. */
     int port;                                           /* TCP listening port */
+    int tls_port;                                       /* TLS listening port */
     int tcp_backlog;                                    /* TCP listen() backlog */
     int mptcp;                                          /* Use Multiple path TCP */
+    unsigned int max_new_conns_per_cycle;               /* The maximum number of tcp connections that will be accepted during each
+                                                            invocation of the event loop. */
     int socket_mark_id;                                 /* ID for listen socket marking */
     connListener listeners[CONN_TYPE_MAX];              /* TCP/Unix/TLS even more types */
     aeEventLoop *el;
@@ -35,6 +38,7 @@ void _serverlog(int level, const char *fmt, ...);
 
 
 int listenToPort(connListener *listener);
+int createSocketAcceptHandler(connListener *sfd, aeFileProc *accept_handler);
 
 /*------------------------------------------------------------------------------------------------
  * Extern declarations

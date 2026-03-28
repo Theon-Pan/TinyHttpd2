@@ -107,7 +107,7 @@ void initServer(struct Options *options)
     server.mptcp = 0;
     server.tcp_backlog = 300;
     server.socket_mark_id = 0;
-
+    server.max_new_conns_per_cycle = 1000;
 
     /* @todo: Currently we set the max clients to 1024 + 96, will change to depend on the args in the options. */
     server.el = aeCreateEventLoop(1024 + 96);
@@ -131,7 +131,46 @@ void initListeners(void) {
         listener->port = server.port;
         listener->ct = ct;
     }
+
+    // if (server.tls_port != 0) {
+    //     ct = connectionByType(CONN_TYPE_TLS);
+    // }
+
+    /* Create all the configured listener, and add handler to start to accept */
+    int listen_fds = 0;
+    for (int j = 0; j < CONN_TYPE_MAX; j++) {
+        listener = &server.listeners[j];
+        if (listener->ct == NULL) continue;
+
+        if (connListen(listener) == C_ERR) {
+            serverLog(LL_WARNING|LL_RAW, "Failed listening on port %u (%s), abording.", listener->port,
+                    getConnectionTypeName(listener->ct->get_type()));
+            exit(EXIT_FAILURE);
+        }
+        listen_fds += listener->count;  
+    }
+
+    if (listen_fds == 0) {
+        serverLog(LL_WARNING|LL_RAW, "Configured to not listen anywhere, exiting.");
+        exit(EXIT_FAILURE);
+    }
     
+}
+
+/* Create an event handler for accepting new connections in TCP or TLS domain sockets. 
+ * This works atomically for all socket fds */
+int createSockerAcceptHandler(connListener *sfd, aeFileProc *accept_handler) {
+    int j;
+    
+    for (j = 0; j < sfd->count; j++) {
+        if (aeCreateFileEvent(server.el, sfd->fd[j], AE_READABLE, accept_handler, sfd) == AE_ERR) {
+            /* Rollback */
+            for (j = j - 1; j >= 0; j--) aeDeleteFileEvent(server.el, sfd->fd[j], AE_READABLE);
+            return C_ERR;
+        }
+    }
+
+    return C_OK;
 }
 
 

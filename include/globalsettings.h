@@ -9,6 +9,13 @@
 #define HAVE_EPOLL 1
 #endif
 
+/* Test for accept4 */
+#if defined(__linux__) || defined(__FreeBSD__) || defined(OpenBSD5_7) || \
+    (defined(_DragonFly__) && __DragonFly_version >= 400305) ||          \
+    (defined(__NetBSD__) && (defined(NetBSD8_0) || __NetBSD_Version__ >= 800000000))
+#define HAVE_ACCEPT4
+#endif
+
 /* MSG_NOSIGNAL */
 #if defined(__linux__)
 #define HAVE_MSG_NOSIGNAL 1
