@@ -10,7 +10,6 @@
 #include <stdarg.h>
 #include <stdlib.h>
 #include <signal.h>
-#include <errno.h>
 #include <string.h>
 #include <unistd.h>
 
@@ -108,6 +107,7 @@ void initServer(struct Options *options)
     server.tcp_backlog = 300;
     server.socket_mark_id = 0;
     server.max_new_conns_per_cycle = 1000;
+    server.tcpkeepalive = 2 * 60 * 60;
 
     /* @todo: Currently we set the max clients to 1024 + 96, will change to depend on the args in the options. */
     server.el = aeCreateEventLoop(1024 + 96);
@@ -147,7 +147,10 @@ void initListeners(void) {
                     getConnectionTypeName(listener->ct->get_type()));
             exit(EXIT_FAILURE);
         }
-        listen_fds += listener->count;  
+        if (createSocketAcceptHandler(listener, connAcceptHandler(listener->ct)) != C_OK) {
+            panic("Unrecoverable error when creating %s listener accept handler.", getConnectionTypeName(listener->ct->get_type()));
+        }
+        listen_fds += listener->count; 
     }
 
     if (listen_fds == 0) {
@@ -159,7 +162,7 @@ void initListeners(void) {
 
 /* Create an event handler for accepting new connections in TCP or TLS domain sockets. 
  * This works atomically for all socket fds */
-int createSockerAcceptHandler(connListener *sfd, aeFileProc *accept_handler) {
+int createSocketAcceptHandler(connListener *sfd, aeFileProc *accept_handler) {
     int j;
     
     for (j = 0; j < sfd->count; j++) {

@@ -6,6 +6,13 @@
 #include "connection.h"
 #include "anet.h"
 
+#include <stdlib.h>
+#include <sys/socket.h>
+#include <error.h>
+#include <errno.h>
+#include <string.h>
+#include <limits.h>
+
 /* Error codes */
 #define C_OK 0
 #define C_ERR -1
@@ -30,6 +37,7 @@ struct tinyHttpServer {
     unsigned int max_new_conns_per_cycle;               /* The maximum number of tcp connections that will be accepted during each
                                                             invocation of the event loop. */
     int socket_mark_id;                                 /* ID for listen socket marking */
+    int tcpkeepalive;                                   /* Set SO_KEEPALIVE if non-zero */
     connListener listeners[CONN_TYPE_MAX];              /* TCP/Unix/TLS even more types */
     aeEventLoop *el;
 };

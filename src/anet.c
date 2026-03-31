@@ -14,6 +14,7 @@
 #include <netinet/in.h>
 #include <unistd.h>
 #include <grp.h>
+#include <netinet/tcp.h>
 
 
 /* XXX: Until glibc 2.41, getaddrinfo with hints.ai_protocol of IPPROTO_MPTCP leads error.
@@ -48,6 +49,22 @@ static int anetV6Only(char *err, int s) {
         return ANET_ERR;
     }
     return ANET_OK;
+}
+
+static int anetSetTcpDelay(char *err, int fd, int val) {
+    if (setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &val, sizeof(val)) == -1) {
+        anetSetError(err, "setsockopt TCP_NODELAY: %s", strerror(errno));
+        return ANET_ERR;
+    }
+    return ANET_OK;
+}
+
+int anetEnableTcpDelay(char *err, int fd) {
+    return anetSetTcpDelay(err, fd, 1);
+}
+
+int anetDisableTcpDelay(char *err, int fd) {
+    return anetSetTcpDelay(err, fd, 0);
 }
 
 static int anetSetReuseAddr(char *err, int fd) {
@@ -155,6 +172,146 @@ int anetCloexec(int fd)
     return r;
 }
 
+/* Enable TCP keep-alive mechanism to detect dead peers,
+ * TCP_KEEPIDLE, TCP_KEEPINTVL and tCP_KEEPCNT will be set accordingly. */
+int anetKeepAlive(char *err, int fd, int interval) {
+    int enabled = 1;
+    if (setsockopt(fd, SOL_SOCKET, SO_KEEPALIVE, &enabled, sizeof(enabled)) == -1) {
+        anetSetError(err, "setsockopt SO_KEEPALIVE: %s", strerror(errno));
+        return ANET_ERR;
+    }
+
+    int idle;
+    int intvl;
+    int cnt;
+
+    /* There are platforms that are expected to support the full mechanism of TCP keep-alive, 
+     * we want the compiler to emit warnings of unused variables if the preprocessor derectives
+     * somehow fail, and other than those platforms, just omit these warnings if the happen.
+     */
+#if !(defined(_AIX) || defined(__APPLE__) || defined(__DragonFly__) || defined(__FreeBSD__) || defined(__illumos__) || \
+        defined(__linux__) || defined(__NetBSD__) || defined(__sun))
+    UNUSED(interval);
+    UNUSED(idle);
+    UNUSED(intvl);
+    UNUSED(cnt);
+#endif
+
+#ifdef __sun
+    /* The implementation of TCP keep-alive on Solaris/SmartOS is a bit unusual
+     * compared to other Unix-like systems.
+     * Thus, we need to specialize it on Solaris.
+     * 
+     * There are two keep-alive mechanisms on Solaris:
+     * - By default, the first keep-alive probe is sent out after a TCP connection is idle for twon hours.
+     * If the peer does not respond to the probe within eight minutes, the TCP connection is aborted.
+     * You can alter the interval for sending out the first probe using the socket option TCP_KEEPALIVE_THRESHOLD
+     * in milliseconds or TCP_KEEPIDLE in seconds.
+     * The system default is controller by the TCP ndd parameter tcp_keepalive_interval. The minimum value is ten 
+     * seconds. The maximum is ten days, while the default is two hours. If you receive no reponse to the probe, you
+     * can use the TCP_KEEPALIVE_ABORT_THRESHOLD socket option to change the time threshold for aborting a TCP
+     * connection. The option value is an unsigned integer in milliseconds. The value zero indicates that TCP should
+     * never time tou and abort the connection when probing. The system default is controlled by the TCP ndd parameter
+     * tcp_keepalive_abort_interval. The default is eight minutes.
+     * 
+     * - The second implemetation is activated if socket option TCP_KEEPINTVL and/or TCP_KEEPCNT are set.
+     * The time between each consequent probes is set by TCP_KEEPINTVL in seconds.
+     * THe minimum value is ten seconds. The maximum is ten days, while the default is two hours.
+     * The TCP connection will be aborted after certain amount of probes, which is set by TCP_KEEPCNT, without receiving
+     * response.
+     * */
+
+    idle = interval;
+    if (idle < 10) idle = 10;                               // Kernel expects at least 10 seconds
+    if (idle > 10 * 24 * 60 * 60) idle = 10 * 24 * 60 * 60  // Kernel expects at most 10 days
+
+    /* `TCP_KEEPIDLE`, `TCP_KEEPINTVL`, and `TCP_KEEPCNT` were not available on Solaris
+     * until version 11.4, but let's take a chance here. */
+#if defined(TCP_KEEPIDLE) && defined(TCP_KEEPINTVL) && define(TCP_KEEPCNT)
+    if (setsockopt(fd, IPPROTO_TCP, TCP_KEEPIDLE, &idle, sizeof(idle)) == -1) {
+        anetSetError(err, "setsockopt TCP_KEEPIDLE: %s\n", strerror(errno));
+        return ANET_ERR;
+    }
+
+    intvl = idle / 3;
+    if (intvl < 10) intvl = 10; /* Kernel expects at least 10 seconds */
+    if (setsockopt(fd, IPPROTO_TCP, TCP_KEEPINTVL, &intvl, sizeof(intvl)) == -1) {
+        anetSetError(err, "setsockopt TCP_KEEPINTVL: %s\n", strerror(errno));
+        return ANET_ERR;
+    }
+
+    cnt = 3;
+    if (setsockopt(fd, IPPROTO_TCP, TCP_KEEPCNT, &cnt, sizeof(cnt)) == -1) {
+        anetSetError(err, "setsockopt TCP_KEEPCNT: %s\n", strerror(errno));
+        return ANET_ERR;
+    }
+#else
+    /* Fall back to the first implementation of tcp-alive mechanism for older Solaris,
+     * simulate the tcp-alive mechanism on other platforms via `TCP_KEEPALIVE_THRESHOLD` +
+     * `TCP_KEEPALIVE_ABORT_THRESHOLD`.
+     * */
+    idle *= 1000;   // Kernal expects milliseconds
+    if (setsockopt(fd, IPPROTO_TCP, TCP_KEEPALIVE_THRESHOLD, &idle, sizeof(idle)) == -1) {
+        anetSetError(err, "setsockopt TCP_KEEPALIVE_THESHOLD: %s\n", strerror(errno));
+        return ANET_ERR;
+    }
+
+    /* Note that the consequent probes will not be sent at equal intervals on Solaris,
+     * but will be sent using the exponential backoff algorithm. */
+    int time_to_abort = idle;
+    id (setsockopt(fd, IPPROTO_TCP, TCP_KEEPALIVE_ABORT_THRESHOLD, &time_to_abort, sizeof(time_to_abort)) == -1) {
+        anetSetError(err, "setsockopt TCP_KEEPALIVE_ABORT_THRESHOLD: %s\n", strerror(errno));
+        return ANET_ERR;
+    }
+#endif
+    return ANET_OK;
+#endif
+
+#ifdef TCP_KEEPIDLE
+    /* Default settings are more or less garbage, with the keepalive time
+     * set to 7200 by default on Linux and other Unix-like systems.
+     * Modify settings to make the feature actually useful. */
+
+     /* Send first probe after interval. */
+     idle = interval;
+     if (setsockopt(fd, IPPROTO_TCP, TCP_KEEPIDLE, &idle, sizeof(idle)) == -1) {
+        anetSetError(err, "setsockopt TCP_KEEPIDLE: %s\n", strerror(errno));
+        return ANET_ERR;
+     }
+#elif defined(TCP_KEEPALIVE)
+     /* Darwin/macOS uses TCP_KEEPALIVE in place of TCP_KEEPIDLE. */
+     idle = interval;
+     if (setsockopt(fd, IPPROTO_TCP, TCP_KEEPALIVE, &idle, sizeof(idle)) == -1) {
+        anetSetError(err, "setsockopt TCP_KEEPALIVE: %s\n", strerror(errno));
+        return ANET_ERR;
+     }
+#endif
+
+#ifdef TCP_KEEPINTVL
+     /* Send next probes after the specified interval. Note that we set the 
+      * delay as interval / 3, as we send three probes before detecting
+      * an error(see the next setsockopt call). */
+     intvl = interval / 3;
+     if (intvl == 0) intvl = 1;
+     if (setsockopt(fd, IPPROTO_TCP, TCP_KEEPINTVL, &intvl, sizeof(intvl)) == -1) {
+        anetSetError(err, "setsockopt TCP_KEEPINTVL: %s\n", strerror(errno));
+        return ANET_ERR;
+     }
+#endif
+
+#ifdef TCP_KEEPCNT
+     /* Consider the socket in error state after three we send three ACK
+      * probes without gettting a reply. */
+     cnt = 3;
+     if (setsockopt(fd, IPPROTO_TCP, TCP_KEEPCNT, &cnt, sizeof(cnt)) == -1) {
+        anetSetError(err, "setsockopt TCP_KEEPCNT: %s\n", strerror(errno));
+        return ANET_ERR;
+     }
+#endif
+
+     return ANET_OK;
+}
+
 int anetTcpServer(char *err, int port, char *bindaddr, int backlog, int mptcp) {
     return _anetTcpServer(err, port, bindaddr, AF_INET, backlog, mptcp);
 }
@@ -163,6 +320,38 @@ int anetTcp6Server(char *err, int port, char *bindaddr, int backlog, int mptcp) 
     return _anetTcpServer(err, port, bindaddr, AF_INET6, backlog, mptcp);
 }
 
+/* For some error cases indicates transient errors and accept can be retried 
+ * in order to serve other pending connections. This function shoudl be called with the last errno,
+ * right after anetTcpAccept or anetUnixAccept returned an error in order to retry them. */
+int anetRetryAcceptOnError(int err) {
+    /* This is a trasient error which can happen, for example, when 
+     * a client initiates a TCP handshake (SYN),
+     * the server receives and queues it in the pending connections queue (the SYN queue),
+     * but before accept() is called, the connection is aborded.
+     * In such cases we can continue accepting other connections. */
+    if (err == ECONNABORTED) {
+        return 1;
+    }
+
+#if defined(__linux__)
+    /* https://www.man7.org/linux/man-pages/man2/accept4.2 suggests that:
+     * Linux accept() (and accept4()) passes already-pending network
+       errors on the new socket as an error code from accept(), This 
+       behavior differs from other BSD socket implementations. For 
+       reliable operation, the application should detect the network
+       errors defined for the protocol after accept() and treat them like
+       EAGAIN by retrying. In the case of TCP/IP, these are ENETDOWN, 
+       EPROTO, ENOPROTOOPT, EHOSTDOWN, ENONET, EHOSTUNREACH, EOPNOTSUPP,
+       and ENETUNREACH. */
+       if (err == ENETDOWN || err == EPROTO || err == ENOPROTOOPT ||
+            err == EHOSTDOWN || err == ENONET || err == EHOSTUNREACH ||
+            err == EOPNOTSUPP || err == ENETUNREACH) {
+                return 1;
+        }
+#endif
+    
+    return 0;
+}
 /* Accpet a connection and also make sure the socket is non-blocking, and CLOEXEC.
  * returns the new socket FD, or -1 on error. */
 static int anetGenericAccept(char *err, int s, struct sockaddr *sa, socklen_t *len) {
@@ -205,7 +394,18 @@ int anetTcpAccept(char *err, int serversock, char *ip, size_t ip_len, int *port)
 
     if (sa.ss_family == AF_INET) {
         struct sockaddr_in *s = (struct sockaddr_in *)&sa;
+        if (ip) inet_ntop(sa.ss_family, (void *)&(s->sin_addr), ip, ip_len);
+        if (port) *port = ntohs(s->sin_port);
+    } else {
+        struct sockaddr_in6 *s = (struct sockaddr_in6 *)&sa;
+        if (ip) inet_ntop(sa.ss_family, (void *)&(s->sin6_addr), ip, ip_len);
+        if (port) *port = ntohs(s->sin6_port);
     }
+
+    /* Enable TCP_NODELAY by default */
+    anetEnableTcpDelay(err, fd);
+
+    return fd;
 }
 
 

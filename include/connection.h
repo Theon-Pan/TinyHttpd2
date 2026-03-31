@@ -104,6 +104,12 @@ static inline void connCloseListener(connListener *listener) {
     }
 }
 
+/* Get accept_handler of a connection type */
+static inline aeFileProc *connAcceptHandler(ConnectionType *ct) {
+    if (ct) return ct->accept_handler;
+    return NULL;
+}
+
 /* Initialize the connection framework */
 int connTypeInitialize(void);
 

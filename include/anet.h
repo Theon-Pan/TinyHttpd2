@@ -6,6 +6,7 @@
 
 #include <sys/types.h>
 #include <stdint.h>
+#include <arpa/inet.h>
 
 #define ANET_OK 0
 #define ANET_ERR -1
@@ -33,6 +34,10 @@ int anetTcpServer(char *err, int port, char *bindaddr, int backlog, int mptcp);
 int anetTcp6Server(char *err, int port, char *bindaddr, int backlog, int mptcp);
 int anetTcpAccept(char *err, int serversock, char *ip, size_t ip_len, int *port);
 int anetSetSockMarkId(char *err, int fd, uint32_t id);
+int anetEnableTcpNoDelay(char *err, int fd);
+int anetDisableTcpNoDelay(char *err, int fd);
+int anetRetryAcceptOnError(int err);
+int anetKeepAlive(char *err, int fd, int interval);
 
 
 #endif
