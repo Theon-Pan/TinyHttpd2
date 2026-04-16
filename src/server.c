@@ -98,6 +98,7 @@ void initServer(struct Options *options)
             server.bindaddr[i] = strdup(options->bindaddr[i]);
         }
     }
+    server.bindaddr_count = options->bindaddr_count;
 
     server.port = options->port;
     memset(server.listeners, 0x00, sizeof(server.listeners));
@@ -106,7 +107,7 @@ void initServer(struct Options *options)
     server.mptcp = 0;
     server.tcp_backlog = 300;
     server.socket_mark_id = 0;
-    server.max_new_conns_per_cycle = 1000;
+    server.max_new_conns_per_cycle = 1;
     server.tcpkeepalive = 2 * 60 * 60;
 
     /* @todo: Currently we set the max clients to 1024 + 96, will change to depend on the args in the options. */
@@ -262,6 +263,10 @@ __attribute__((weak)) int main(int argc, char *argv[])
     serverLog(LL_DEBUG|LL_RAW, "server options initialized!");
 
     initServer(&options);
-    sleep(10000);
+    connTypeInitialize();
+    initListeners();
 
+    aeMain(server.el);
+
+    return 0;
 }

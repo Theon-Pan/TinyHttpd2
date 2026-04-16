@@ -181,7 +181,7 @@ int aeProcessEvents(aeEventLoop *eventLoop, int flags)
     return processed;
 }
 
-void aemain(aeEventLoop *eventLoop)
+void aeMain(aeEventLoop *eventLoop)
 {
     eventLoop->stop = 0;
     while (!eventLoop->stop)

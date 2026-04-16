@@ -38,6 +38,7 @@ int anetEnableTcpNoDelay(char *err, int fd);
 int anetDisableTcpNoDelay(char *err, int fd);
 int anetRetryAcceptOnError(int err);
 int anetKeepAlive(char *err, int fd, int interval);
+int anetFdToString(int fd, char *ip, size_t ip_len, int *port, int remote);
 
 
 #endif

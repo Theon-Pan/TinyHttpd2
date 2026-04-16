@@ -45,8 +45,11 @@ struct tinyHttpServer {
 void _serverlog(int level, const char *fmt, ...);
 
 
+void acceptCommonHandler(connection *conn, char *ip);
+
 int listenToPort(connListener *listener);
 int createSocketAcceptHandler(connListener *sfd, aeFileProc *accept_handler);
+
 
 /*------------------------------------------------------------------------------------------------
  * Extern declarations
